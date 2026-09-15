@@ -36,12 +36,10 @@ class RemoteLLMSummarizeCompactor(Compactor):
         model_ip: str,
         prompt_template: str,
         runtime_kwargs: dict[str, Any] | None = None,
-        extra_instruction: str | None = None,
     ):
         self.model = model
         self.base_url = _to_base_url(model_ip)
         self.prompt_template = prompt_template
-        self.extra_instruction = extra_instruction
         self.runtime = ExistingVLLMServerRuntime(
             config={"model": model, "base_url": self.base_url, **(runtime_kwargs or {})}
         )
@@ -49,16 +47,11 @@ class RemoteLLMSummarizeCompactor(Compactor):
     def name(self) -> str:
         return f"remote_llm_summarize_{self.model}_{self.prompt_template}"
 
-    def _build_prompt(self, messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-        prompt = get_summarization_prompt(self.prompt_template, messages)
-        if self.extra_instruction:
-            # Every template ends with its summarization instruction, so the extra text lands next to it.
-            last = prompt[-1]
-            prompt[-1] = {**last, "content": f"{last['content']}\n\n{self.extra_instruction}"}
-        return prompt
-
     def summarize(self, messages: list[dict[str, Any]]) -> str:
-        response = self.runtime.generate(messages=self._build_prompt(messages), model=self.model)
+        response = self.runtime.generate(
+            messages=get_summarization_prompt(self.prompt_template, messages),
+            model=self.model,
+        )
         return response.text
 
     def _build_compaction_result(
@@ -104,7 +97,10 @@ class RemoteLLMSummarizeCompactor(Compactor):
             return []
 
         responses = self.runtime.batch_generate(
-            batch_messages=[self._build_prompt(messages) for messages in batch_messages],
+            batch_messages=[
+                get_summarization_prompt(self.prompt_template, messages)
+                for messages in batch_messages
+            ],
             model=self.model,
         )
         return [
